@@ -1,0 +1,15 @@
+# Recommended extensions (one per line). Lines starting with # are ignored.
+ms-python.python
+ms-python.vscode-pylance
+rust-lang.rust-analyzer
+golang.go
+ms-vscode.cpptools
+eamodio.gitlens
+streetsidesoftware.code-spell-checker
+ms-vscode-remote.remote-ssh
+ms-vscode-remote.remote-containers
+ms-azuretools.vscode-docker
+shd101wyy.markdown-preview-enhanced
+
+# Optional: add themes or icon packs you prefer
+ms-vscode.Theme-OK-night
