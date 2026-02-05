@@ -263,14 +263,26 @@ else
 fi
 
 # 19. VS Code Extensions Count
-if command -v code >/dev/null 2>&1; then
-    # Use timeout to prevent hanging if container is stopped/slow
-    ext_count=$(timeout 10s code --list-extensions 2>/dev/null | wc -l)
+# Check ~/.vscode/extensions directly to avoid launching the heavy 'code' wrapper/container
+ext_count=0
+if [ -d "$HOME/.vscode/extensions" ]; then
+    ext_count=$(find "$HOME/.vscode/extensions" -maxdepth 1 -mindepth 1 -type d | wc -l)
+elif [ -d "$HOME/.var/app/com.visualstudio.code/data/vscode/extensions" ]; then
+    # Check Flatpak path if standard path missing
+    ext_count=$(find "$HOME/.var/app/com.visualstudio.code/data/vscode/extensions" -maxdepth 1 -mindepth 1 -type d | wc -l)
+elif command -v code >/dev/null 2>&1; then
+    # Fallback to CLI (slow, might hang)
+    ext_count=$(timeout 5s code --list-extensions 2>/dev/null | wc -l)
+fi
+
+if [ "$ext_count" -gt 0 ]; then
     if [ "$ext_count" -gt 40 ]; then
         report "WARNING" "VS Code Extensions" "Medium: High extension count can slow down editor" "Disable unused extensions" "$ext_count installed"
     else
         report "GOOD" "VS Code Extensions" "None" "" "$ext_count installed"
     fi
+else
+    report "GOOD" "VS Code Extensions" "None" "" "Unknown / None found"
 fi
 
 echo -e "${BLUE}======================================================================${NC}"
