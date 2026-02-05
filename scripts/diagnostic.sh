@@ -43,14 +43,23 @@ report() {
     echo "----------------------------------------------------------------------"
 }
 
-# 1. Swap Size
+# 1. Swap Size & Usage
 swap_total=$(free -g | grep Swap | awk '{print $2}')
+swap_used_pct=$(free | grep Swap | awk '{if ($2 > 0) print int($3 * 100 / $2); else print 0}')
+
 if [ "$swap_total" -ge 15 ]; then
-    report "GOOD" "Swap File Size" "None" "" "${swap_total}GB"
+    status="GOOD"
 elif [ "$swap_total" -ge 8 ]; then
-    report "WARNING" "Swap File Size" "Low" "Consider increasing to 16GB for heavy builds" "${swap_total}GB"
+    status="WARNING"
 else
-    report "BAD" "Swap File Size" "HIGH: OOM crashes during compilation" "Increase swap to 16GB (e.g., via CryoUtilities)" "${swap_total}GB"
+    status="BAD"
+fi
+report "$status" "Swap File Size" "HIGH: OOM crashes during compilation" "Increase swap to 16GB (e.g., via CryoUtilities)" "${swap_total}GB"
+
+if [ "$swap_used_pct" -lt 50 ]; then
+    report "GOOD" "Swap Usage" "None" "" "${swap_used_pct}%"
+else
+    report "WARNING" "Swap Usage" "Medium: System might feel sluggish as it hits disk" "Close unused applications" "${swap_used_pct}%"
 fi
 
 # 2. Swappiness
@@ -69,14 +78,17 @@ else
     report "BAD" "Inotify Watches" "HIGH: VS Code cannot track file changes in large projects" "Run: echo fs.inotify.max_user_watches=524288 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p" "$inotify"
 fi
 
-# 4. UMA Frame Buffer (VRAM) - Approximate check via dmesg/vram_size
-# Steam Deck default is 1G, recommended 4G for simulator stability
-vram_raw=$(cat /sys/class/drm/card0/device/mem_info_vram_total 2>/dev/null || echo "0")
-vram_gb=$(( vram_raw / 1024 / 1024 / 1024 ))
-if [ "$vram_gb" -ge 3 ]; then
-    report "GOOD" "UMA Frame Buffer (VRAM)" "None" "" "${vram_gb}GB"
+# 4. UMA Frame Buffer (VRAM)
+vram_raw=$(cat /sys/class/drm/card0/device/mem_info_vram_total 2>/dev/null || cat /sys/module/amdgpu/parameters/vramlimit 2>/dev/null || echo "0")
+vram_mb=$(( vram_raw / 1024 / 1024 ))
+vram_gb=$(( vram_mb / 1024 ))
+
+if [ "$vram_mb" -le 512 ]; then
+    report "BAD" "UMA Frame Buffer (VRAM)" "CRITICAL: Very low graphics memory causes UI lag, simulator crashes, and GPU resets" "Change in BIOS (Hold Vol+ & Power -> Setup Utility -> Advanced -> UMA Frame Buffer) to 4G" "${vram_mb}MB"
+elif [ "$vram_gb" -lt 3 ]; then
+    report "WARNING" "UMA Frame Buffer (VRAM)" "Medium: Simulator instability / GPU acceleration lag" "Change in BIOS (Hold Vol+ & Power -> Setup Utility -> Advanced -> UMA Frame Buffer) to 4G" "${vram_gb}GB"
 else
-    report "WARNING" "UMA Frame Buffer (VRAM)" "Medium: Simulator instability/GPU crashes" "Change in BIOS (Hold Vol+ & Power -> Setup Utility -> Advanced -> UMA Frame Buffer)" "${vram_gb}GB"
+    report "GOOD" "UMA Frame Buffer (VRAM)" "None" "" "${vram_gb}GB"
 fi
 
 # 5. CPU Governor
@@ -123,6 +135,142 @@ if [ -f "$HOME/.config/code-flags.conf" ]; then
     fi
 else
     report "WARNING" "VS Code Wayland Flags" "Low" "code-flags.conf file not found. VS Code might be running in XWayland." "Create ~/.config/code-flags.conf with Wayland flags" "File missing"
+fi
+
+# 8. Disk Space
+home_usage=$(df -h "$HOME" | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ "$home_usage" -lt 90 ]; then
+    report "GOOD" "Disk Space ($HOME)" "None" "" "${home_usage}%"
+else
+    report "BAD" "Disk Space ($HOME)" "HIGH: System sluggishness and write failures" "Free up space on your internal storage" "${home_usage}%"
+fi
+
+# 9. ZRAM Status
+if command -v zramctl >/dev/null 2>&1; then
+    # Use DISKSIZE instead of LIMIT which is more compatible
+    zram_info=$(zramctl --noheadings --output DATA,DISKSIZE 2>/dev/null || echo "0 0")
+    read -r zram_data zram_limit <<< "$zram_info"
+    
+    # Convert to bytes if suffixed
+    convert_to_bytes() {
+        local val=$1
+        val=${val//,/.}
+        if [[ $val == *G ]]; then echo "${val%G}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}'
+        elif [[ $val == *M ]]; then echo "${val%M}" | awk '{printf "%.0f", $1 * 1024 * 1024}'
+        elif [[ $val == *K ]]; then echo "${val%K}" | awk '{printf "%.0f", $1 * 1024}'
+        else echo "${val:-0}"; fi
+    }
+    
+    data_b=$(convert_to_bytes "$zram_data")
+    limit_b=$(convert_to_bytes "$zram_limit")
+    
+    if [ "${limit_b:-0}" -gt 0 ]; then
+        zram_pct=$(( (data_b * 100) / limit_b ))
+        if [ "$zram_pct" -lt 80 ]; then
+            report "GOOD" "ZRAM Usage" "None" "" "${zram_pct}%"
+        else
+            report "WARNING" "ZRAM Usage" "High: System may start swapping to disk" "Close unused applications or VS Code tabs" "${zram_pct}%"
+        fi
+    else
+        report "GOOD" "ZRAM Status" "None" "" "Not in use or size 0"
+    fi
+fi
+
+# 10. IO Wait (Sluggishness detector)
+# More robust extraction of IO Wait percentage
+iowait_raw=$(top -bn1 | grep "Cpu(s)" | awk -F'wa' '{print $1}' | awk '{print $NF}' | sed 's/[^0-9.]//g')
+iowait_int=${iowait_raw%.*}
+iowait_int=${iowait_int:-0}
+
+if [ "$iowait_int" -lt 5 ]; then
+    report "GOOD" "IO Wait" "None" "" "${iowait_raw:-0}%"
+else
+    report "WARNING" "IO Wait" "High: Interface sluggishness, likely disk bottleneck" "Check if Steam is updating games or if SD card is slow" "${iowait_raw}%"
+fi
+
+# 11. Thermal Throttling
+thermal_msg=$(sudo dmesg 2>/dev/null | grep -qi "thermal throttling" && echo "Detected" || echo "Clean")
+if [ "$thermal_msg" == "Detected" ]; then
+    report "BAD" "Thermal Throttling" "HIGH: CPU/GPU frequency capped" "Ensure fans are not blocked and check ambient temperature" "Detected in dmesg"
+else
+    report "GOOD" "Thermal Throttling" "None" "" "Not detected (or dmesg restricted)"
+fi
+
+# 12. System Logs Size
+journal_size=$(journalctl --disk-usage | awk '{print $7}')
+if [[ "$journal_size" == *G* ]]; then
+    report "WARNING" "System Logs Size" "Low: Large logs can slow down journal queries" "Run: sudo journalctl --vacuum-time=2d" "$journal_size"
+else
+    report "GOOD" "System Logs Size" "None" "" "$journal_size"
+fi
+
+# 13. Inotify Instances
+instances=$(cat /proc/sys/fs/inotify/max_user_instances)
+if [ "$instances" -ge 512 ]; then
+    report "GOOD" "Inotify Instances" "None" "" "$instances"
+else
+    report "WARNING" "Inotify Instances" "Low: VS Code extension host may crash" "Run: echo fs.inotify.max_user_instances=512 | sudo tee -a /etc/sysctl.conf && sudo sysctl -p" "$instances"
+fi
+
+# 14. KDE Baloo Indexing
+if pgrep -x "baloo_file" >/dev/null; then
+    report "WARNING" "KDE File Indexing (Baloo)" "Low: Background CPU/IO usage" "Consider disabling if indexing is not needed (balooctl disable)" "Running"
+else
+    report "GOOD" "KDE File Indexing (Baloo)" "None" "" "Disabled/Not running"
+fi
+
+# 15. Load Average
+load_avg=$(cut -d' ' -f1 /proc/loadavg)
+cpu_count=$(nproc)
+# Compare using awk since bc might be missing
+is_high=$(awk -v n1="$load_avg" -v n2="$cpu_count" 'BEGIN {if (n1 > n2) print 1; else print 0}')
+if [ "$is_high" -eq 0 ]; then
+    report "GOOD" "System Load" "None" "" "$load_avg"
+else
+    report "WARNING" "System Load" "Medium: CPU cores are saturated" "Identify high CPU processes (e.g., top or htop)" "$load_avg"
+fi
+
+# 16. Heavy Development Processes (Memory Leaks)
+echo -e "${BLUE}>> Top Memory Processes (Dev related):${NC}"
+ps -eo pmem,comm,pid,rss --sort=-rss | grep -E "code|java|simulator|node|distrobox" | head -n 5 | while read -r pmem comm pid rss; do
+    rss_mb=$(( rss / 1024 ))
+    if [ "$rss_mb" -gt 2000 ]; then
+        echo -e "[ ${RED}HUGE${NC} ] $comm (PID: $pid) - ${rss_mb}MB"
+    elif [ "$rss_mb" -gt 1000 ]; then
+        echo -e "[ ${YELLOW}HIGH${NC} ] $comm (PID: $pid) - ${rss_mb}MB"
+    else
+        echo -e "[ INFO ] $comm (PID: $pid) - ${rss_mb}MB"
+    fi
+done
+
+# 17. Power Supply Status
+if [ -f "/sys/class/power_supply/ACAD/online" ]; then
+    ac_status=$(cat /sys/class/power_supply/ACAD/online)
+    if [ "$ac_status" -eq 1 ]; then
+        report "GOOD" "Power Supply" "None" "" "Plugged In"
+    else
+        report "WARNING" "Power Supply" "Medium: Performance throttling likely on battery" "Plug in your Steam Deck for full performance" "Battery Power"
+    fi
+fi
+
+# 18. Trash Size
+trash_size=$(du -ks "$HOME/.local/share/Trash" 2>/dev/null | awk '{print $1}')
+trash_size_mb=$((trash_size / 1024))
+if [ "$trash_size_mb" -gt 2048 ]; then
+    report "WARNING" "Trash Size" "Low: Wasted disk space" "Empty your trash (Trash Size: ${trash_size_mb}MB)" "${trash_size_mb}MB"
+else
+    report "GOOD" "Trash Size" "None" "" "${trash_size_mb}MB"
+fi
+
+# 19. VS Code Extensions Count
+if command -v code >/dev/null 2>&1; then
+    # Use timeout to prevent hanging if container is stopped/slow
+    ext_count=$(timeout 10s code --list-extensions 2>/dev/null | wc -l)
+    if [ "$ext_count" -gt 40 ]; then
+        report "WARNING" "VS Code Extensions" "Medium: High extension count can slow down editor" "Disable unused extensions" "$ext_count installed"
+    else
+        report "GOOD" "VS Code Extensions" "None" "" "$ext_count installed"
+    fi
 fi
 
 echo -e "${BLUE}======================================================================${NC}"
