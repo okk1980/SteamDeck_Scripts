@@ -1,4 +1,5 @@
-# SteamDeck_Scripts
+# replace USERNAME with your GitHub username
+gh repo create okk1980/SteamDeck_Scripts --public --source=. --remote=origin --push# SteamDeck_Scripts
 
 Repository of scripts and VS Code workspace settings to make coding on a Steam Deck (or other Linux handheld) easier.
 
@@ -32,6 +33,7 @@ Files added
 - `scripts/create-distrobox.sh` — creates a distrobox named `garmin-stable` and mounts this workspace into it.
 - `scripts/enter-distrobox.sh` — helper to enter the `garmin-stable` distrobox.
 - `scripts/setup-in-distrobox.sh` — installs common dev packages inside the distrobox.
+- `scripts/diagnostic.sh` — diagnostic tool to check Steam Deck and Container performance settings.
 
 Next steps
 

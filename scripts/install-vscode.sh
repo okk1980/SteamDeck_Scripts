@@ -3,7 +3,16 @@ set -eu
 
 echo "Detecting package manager and attempting to install Visual Studio Code (or Flatpak package)."
 
-if command -v pacman >/dev/null 2>&1; then
+# Detect SteamOS
+IS_STEAMOS=false
+if [ -f /etc/os-release ] && grep -q "ID=steamos" /etc/os-release; then
+  IS_STEAMOS=true
+fi
+
+if [ "$IS_STEAMOS" = true ]; then
+  echo "Detected SteamOS. Promoting Flatpak installation for the host."
+  flatpak install -y flathub com.visualstudio.code || echo "Flatpak install failed; check if flathub is enabled."
+elif command -v pacman > /dev/null 2>&1; then
   echo "Detected pacman (Arch-based). Trying to install 'code' package via pacman."
   sudo pacman -Sy --noconfirm code || echo "Could not install 'code' via pacman; consider AUR or Flatpak."
 elif command -v apt >/dev/null 2>&1; then

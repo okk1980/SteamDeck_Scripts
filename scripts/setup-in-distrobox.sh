@@ -9,8 +9,8 @@ echo "Updating package index and installing common dev packages (requires sudo i
 if command -v apt >/dev/null 2>&1; then
   sudo apt update
   sudo apt install -y build-essential git curl wget ca-certificates python3 python3-venv python3-pip \
-    pkg-config libssl-dev cmake unzip
-  echo "Installed apt-packages. You can add language-specific toolchains as needed."
+    pkg-config libssl-dev cmake unzip libusb-1.0-0 default-jre
+  echo "Installed apt-packages (including libusb and Java for Garmin development)."
 else
   echo "Non-apt distro detected. Please install your preferred packages manually."
 fi
