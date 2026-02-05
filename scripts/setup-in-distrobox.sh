@@ -8,9 +8,11 @@ echo "Updating package index and installing common dev packages (requires sudo i
 
 if command -v apt >/dev/null 2>&1; then
   sudo apt update
+  # Added libcanberra-gtk* to fix "Failed to load module" GTK warnings in SDK Manager
   sudo apt install -y build-essential git curl wget ca-certificates python3 python3-venv python3-pip \
-    pkg-config libssl-dev cmake unzip libusb-1.0-0 default-jre
-  echo "Installed apt-packages (including libusb and Java for Garmin development)."
+    pkg-config libssl-dev cmake unzip libusb-1.0-0 default-jre \
+    libcanberra-gtk-module libcanberra-gtk3-module
+  echo "Installed apt-packages (including libusb, Java, and GTK modules for Garmin development)."
 else
   echo "Non-apt distro detected. Please install your preferred packages manually."
 fi

@@ -23,6 +23,8 @@ if [ "$IS_CONTAINER" = true ]; then
     echo ">> [Container] Ausführung innerhalb eines Containers erkannt."
     echo "   -> Starte Container-Upgrade (apt)"
     sudo apt-get update
+    # Install commonly missing GTK modules for UI apps (sdkmanager, simulator)
+    sudo apt-get install -y libcanberra-gtk-module libcanberra-gtk3-module
     sudo apt-get dist-upgrade -y
     sudo apt-get autoremove -y
     sudo apt-get clean

@@ -39,6 +39,9 @@ report() {
             echo -e "         Impact: $impact"
             echo -e "         Fix   : $fix"
             ;;
+        "INFO")
+            echo -e "[ ${BLUE}INFO${NC} ] $name (Value: $current)"
+            ;;
     esac
     echo "----------------------------------------------------------------------"
 }
@@ -283,6 +286,71 @@ if [ "$ext_count" -gt 0 ]; then
     fi
 else
     report "GOOD" "VS Code Extensions" "None" "" "Unknown / None found"
+fi
+
+# 20. Linux Open File Descriptions Limit (ulimit)
+# VS Code + Java + Compilers need a lot of file handles
+ulimit_val=$(ulimit -n)
+if [ "$ulimit_val" -lt 4096 ]; then
+    report "WARNING" "File Descriptors (ulimit)" "High: 'Too many open files' crashes" "Run scripts/apply_opt_fixes.sh (requires reboot)" "$ulimit_val"
+else
+    report "GOOD" "File Descriptors (ulimit)" "None" "" "$ulimit_val"
+fi
+
+# 21. SSD Trim Timer
+# Crucial for Steam Deck internal SSD performance over time
+if command -v systemctl >/dev/null 2>&1; then
+    trim_status=$(systemctl is-enabled fstrim.timer 2>/dev/null || echo "inactive")
+    if [ "$trim_status" == "enabled" ]; then
+        report "GOOD" "SSD Trim Timer" "None" "" "Enabled"
+    else
+        report "WARNING" "SSD Trim Timer" "Medium: degraded disk write speed over time" "Run: sudo systemctl enable --now fstrim.timer" "$trim_status"
+    fi
+else
+    report "INFO" "SSD Trim Timer" "Unknown" "systemctl not available" "Skipped"
+fi
+
+# 22. Pacman Cache (Arch Linux specific)
+if [ -d "/var/cache/pacman/pkg" ]; then
+    pkg_cache_size=$(du -ks /var/cache/pacman/pkg 2>/dev/null | awk '{print $1}')
+    pkg_cache_mb=$((pkg_cache_size / 1024))
+    if [ "$pkg_cache_mb" -gt 4096 ]; then
+        report "WARNING" "Pacman Package Cache" "Low: Wasted Disk Space" "Run: sudo pacman -Sc" "${pkg_cache_mb}MB"
+    else
+        report "GOOD" "Pacman Package Cache" "None" "" "${pkg_cache_mb}MB"
+    fi
+fi
+
+# 23. Failed System Services
+if command -v systemctl >/dev/null 2>&1; then
+    # Capture stderr to avoid "System has not been booted with systemd" messages in containers
+    if failed_output=$(systemctl --failed --no-legend --plain 2>/dev/null); then
+        # Count lines, ensure numeric output
+        failed_units=$(echo "$failed_output" | grep -c . || echo "0")
+        # Strip potential newlines/whitespace
+        failed_units=$(echo "$failed_units" | tr -d '[:space:]')
+        
+        if [ "$failed_units" -gt 0 ]; then
+            report "WARNING" "Failed System Services" "High: Potential system instability" "Run: systemctl --failed" "$failed_units failed"
+        else
+            report "GOOD" "System Services" "None" "" "All running"
+        fi
+    else
+         report "INFO" "System Services" "Unknown" "systemctl failed to run (container?)" "Skipped"
+    fi
+fi
+
+# 24. Flatpak VS Code Permissions
+# Common issue: Flatpak VS Code can't see the SDK or tools
+if command -v flatpak >/dev/null 2>&1; then
+    if flatpak list --app | grep -q "com.visualstudio.code"; then
+        perms=$(flatpak info --show-permissions com.visualstudio.code 2>/dev/null | grep "filesystem")
+        if [[ "$perms" == *"host"* ]] || [[ "$perms" == *"home"* ]]; then
+             report "GOOD" "Flatpak Permissions" "None" "" "Host/Home Access Enabled"
+        else
+             report "WARNING" "Flatpak Permissions" "High: Terminals and SDKs won't work" "Use Flatseal to grant 'All User Files' (filesystem=host) access" "Restricted"
+        fi
+    fi
 fi
 
 echo -e "${BLUE}======================================================================${NC}"
