@@ -120,6 +120,46 @@ fix_vscode_wayland_flags() {
     _report_fix "Added Wayland flags to ~/.config/code-flags.conf."
 }
 
+fix_vscode_custom_titlebar() {
+    _report_info "Setting VS Code titleBarStyle to custom..."
+    local settings_file="$HOME/.config/Code/User/settings.json"
+    if [ ! -f "$settings_file" ]; then
+         mkdir -p "$(dirname "$settings_file")"
+         echo '{
+    "window.titleBarStyle": "custom"
+}' > "$settings_file"
+    else
+        if grep -q "\"window.titleBarStyle\"" "$settings_file"; then
+            sed -i 's/"window.titleBarStyle":.*/"window.titleBarStyle": "custom",/' "$settings_file"
+        else
+            sed -i '1s/^{/{\n    "window.titleBarStyle": "custom",/' "$settings_file"
+        fi
+    fi
+    _report_fix "Set window.titleBarStyle to custom."
+}
+
+fix_vscode_gpu_disable() {
+    _report_info "Disabling VS Code Hardware Acceleration..."
+    local argv_file="$HOME/.vscode/argv.json"
+    if [ ! -f "$argv_file" ]; then
+        mkdir -p "$(dirname "$argv_file")"
+        echo '{
+    "disable-hardware-acceleration": true
+}' > "$argv_file"
+    else
+        # Uncomment if commented
+        sed -i 's|^[[:space:]]*//[[:space:]]*"disable-hardware-acceleration"|"disable-hardware-acceleration"|' "$argv_file"
+        
+        if grep -q "\"disable-hardware-acceleration\"" "$argv_file"; then
+             sed -i 's/"disable-hardware-acceleration":.*/"disable-hardware-acceleration": true,/' "$argv_file"
+        else
+             # Insert before last line (assuming last line is })
+             sed -i '$i \    "disable-hardware-acceleration": true,' "$argv_file"
+        fi
+    fi
+    _report_fix "Disabled Hardware Acceleration (argv.json)."
+}
+
 fix_journal_logs() {
     _report_info "Vacuuming systemd journal logs..."
     sudo journalctl --vacuum-time=2d
@@ -235,6 +275,36 @@ else
     current="File missing"
 fi
 report "$status" "VS Code Wayland Flags" "Low: Blurry UI / Better performance" "Add --enable-features=UseOzonePlatform --ozone-platform=wayland to ~/.config/code-flags.conf" "$current" "fix_vscode_wayland_flags"
+
+# 7a. VS Code TitleBar Style
+settings_file="$HOME/.config/Code/User/settings.json"
+titlebar_style="native"
+if [ -f "$settings_file" ]; then
+    if grep -q "\"window.titleBarStyle\":[[:space:]]*\"custom\"" "$settings_file"; then
+        titlebar_style="custom"
+    fi
+fi
+if [ "$titlebar_style" == "custom" ]; then
+    status="GOOD"
+else
+    status="BAD"
+fi
+report "$status" "VS Code TitleBar Style" "HIGH: Fixes black screen rendering issues" "Set \"window.titleBarStyle\": \"custom\" in settings.json" "$titlebar_style" "fix_vscode_custom_titlebar"
+
+# 7b. VS Code GPU Acceleration
+argv_file="$HOME/.vscode/argv.json"
+gpu_accel="enabled"
+if [ -f "$argv_file" ]; then
+    if grep -E "^[[:space:]]*\"disable-hardware-acceleration\":[[:space:]]*true" "$argv_file" >/dev/null; then
+        gpu_accel="disabled"
+    fi
+fi
+if [ "$gpu_accel" == "disabled" ]; then
+    status="GOOD"
+else
+    status="BAD"
+fi
+report "$status" "VS Code GPU Acceleration" "CRITICAL: Fixes GPU crashes (Code 132/512)" "Set \"disable-hardware-acceleration\": true in argv.json" "$gpu_accel" "fix_vscode_gpu_disable"
 
 # 8. Disk Space
 home_usage=$(df -h "$HOME" | tail -1 | awk '{print $5}' | sed 's/%//')
