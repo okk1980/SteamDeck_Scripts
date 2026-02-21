@@ -1,0 +1,5 @@
+Waiting for user to check Steam Launch Options...
+If you see this, please right-click the game in Steam -> Properties -> Launch Options.
+Add the full path to your Battle.net Launcher.exe or Diablo II Resurrected Launcher.exe here.
+Example: "/home/deck/Games/battle-net/drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe"
+Then try running it again.

@@ -64,7 +64,18 @@ if command -v sudo > /dev/null 2>&1; then
     fi
     sudo -v || echo ">> [Host] Sudo fehlgeschlagen oder Passwort erforderlich."
     # keep sudo timestamp alive in background (use $$ for current shell pid)
-    ( while true; do sudo -n true; sleep 60; kill -0 "$$" >/dev/null 2>&1 || exit; done ) 2>/dev/null &
+    ( 
+        while true; do 
+            sudo -n true 2>/dev/null || true
+            sleep 60
+            # Kill this loop if the parent script is no longer running
+            if ! kill -0 "$$" 2>/dev/null; then
+                exit
+            fi
+        done 
+    ) &
+    SUDO_LOOP_PID=$!
+    trap 'kill $SUDO_LOOP_PID 2>/dev/null || true' EXIT
 fi
 
 echo ">> [Host] Update: Paketmanager, Flatpaks und Distrobox prüfen..."
@@ -148,11 +159,17 @@ echo ">> [Container] Prüfe ob Container '$CONTAINER_NAME' existiert..."
 if command -v distrobox > /dev/null 2>&1 && distrobox list 2>/dev/null | grep -qw "$CONTAINER_NAME"; then
     echo ">> [Container] Betrete '$CONTAINER_NAME' und führe Wartung aus..."
 
+    # First update the apt cache so we can see what updates are available
+    distrobox enter "$CONTAINER_NAME" -- sudo apt-get update -qq
+
+    # Now calculate the updates based on the fresh cache
     updates=$(distrobox enter "$CONTAINER_NAME" -- apt-get --just-print upgrade | awk -F '[/ ]' '/^  Inst/ {print "    - " $2 " -> " $4}')
+    
+    # Perform the actual upgrade
     if distrobox enter "$CONTAINER_NAME" -- bash -lc "
         set -euo pipefail
         echo '   -> Starte Container-Upgrade (apt)...'
-        sudo apt-get update -qq
+        # apt-get update already ran above, but running it again is harmless or we can skip it
         sudo apt-get dist-upgrade -y -qq
         sudo apt-get autoremove -y -qq
         sudo apt-get clean
@@ -179,4 +196,13 @@ printf "%b" "${SUMMARY_LOG}"
 echo "=========================================="
 echo "✅ ALLE VORGÄNGE ABGESCHLOSSEN"
 echo "=========================================="
-read -p "Drücke ENTER zum Schließen..." || true
+
+# Check if we are running in Steam Game Mode (where no terminal is visible)
+# Steam Game Mode typically has SteamGameId or other environment variables, 
+# or we can check if we are attached to a TTY.
+if [ -t 0 ]; then
+    read -p "Drücke ENTER zum Schließen..." || true
+else
+    echo "Kein Terminal erkannt. Schließe in 5 Sekunden..."
+    sleep 5
+fi
