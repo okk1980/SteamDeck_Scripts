@@ -24,6 +24,14 @@ echo "Starting D2R Optimization Script at $(date)" > "$DESKTOP_LOG"
 # Redirect all stdout and stderr to the log file for debugging (append mode)
 exec > >(tee -a "$LOG_FILE" | tee -a "$DESKTOP_LOG") 2>&1
 
+# Save LD_PRELOAD to restore it later for the game, and unset it to prevent 32-bit/64-bit mismatch errors in script commands
+if [[ -n "$LD_PRELOAD" ]]; then
+    if [[ -z "$SAVED_LD_PRELOAD" ]]; then
+        export SAVED_LD_PRELOAD="$LD_PRELOAD"
+    fi
+    unset LD_PRELOAD
+fi
+
 echo "==================================================="
 echo "Run started at: $(date)"
 echo "Script Path: $0"
@@ -483,6 +491,12 @@ if [[ "$AUTO_FIX" == "true" ]]; then
     if [[ $# -gt 0 && -n "$1" ]]; then
         echo -e "${GREEN}Launching Game Command (from args): $@${NC}"
         echo "[$(date +'%Y-%m-%d %H:%M:%S')] [INFO] Launching game command: $@" >> "$LOG_FILE"
+        
+        # Restore LD_PRELOAD for the game
+        if [[ -n "$SAVED_LD_PRELOAD" ]]; then
+            export LD_PRELOAD="$SAVED_LD_PRELOAD"
+        fi
+        
         exec "$@"
     else
         # Try to read game path from config file
@@ -496,10 +510,29 @@ if [[ "$AUTO_FIX" == "true" ]]; then
                 
                 # Check if running in Wine/Proton environment
                 if command -v wine &> /dev/null; then
+                     if [[ -n "$SAVED_LD_PRELOAD" ]]; then
+                         export LD_PRELOAD="$SAVED_LD_PRELOAD"
+                     fi
                      exec wine "$GAME_PATH"
                 else
-                     echo -e "${YELLOW}Warning: 'wine' command not found. Trying direct execution...${NC}"
-                     exec "$GAME_PATH"
+                     if [[ "$GAME_PATH" == *.exe || "$GAME_PATH" == *.EXE ]]; then
+                         echo -e "${RED}ERROR: Cannot execute Windows binary directly without Wine/Proton!${NC}"
+                         echo -e "To fix this, please set up the script correctly in Steam:"
+                         echo -e "1. Add the GAME (D2R.exe or Battle.net Launcher.exe) as a Non-Steam Game."
+                         echo -e "2. Force the use of a compatibility tool (Proton) in the game's Properties -> Compatibility."
+                         echo -e "3. In the game's Properties -> Launch Options, add:"
+                         echo -e "   ${YELLOW}\"$SCRIPT_DIR/launch_d2r_wrapper.sh\" %command%${NC}"
+                         echo -e ""
+                         echo -e "Closing in 15 seconds..."
+                         sleep 15
+                         exit 1
+                     else
+                         echo -e "${YELLOW}Warning: 'wine' command not found. Trying direct execution...${NC}"
+                         if [[ -n "$SAVED_LD_PRELOAD" ]]; then
+                             export LD_PRELOAD="$SAVED_LD_PRELOAD"
+                         fi
+                         exec "$GAME_PATH"
+                     fi
                 fi
                 exit 0
             fi

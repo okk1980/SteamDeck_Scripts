@@ -193,6 +193,39 @@ fix_distrobox_libs() {
     _report_fix "Installed required libraries in the container."
 }
 
+fix_vscode_cli_path() {
+    _report_info "Attempting to fix VS Code 'code' command in PATH..."
+    if command -v code >/dev/null 2>&1; then
+        _report_info "'code' command is already available."
+        return
+    fi
+
+    local HOST_CODE=$(find /usr/bin /usr/share/code/bin /opt -name code -type f -executable 2>/dev/null | head -n 1 || true)
+    
+    if [ -n "$HOST_CODE" ]; then
+        _report_info "Found host VS Code at $HOST_CODE. Creating symlink..."
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$HOST_CODE" "$HOME/.local/bin/code"
+        _report_fix "Created symlink at ~/.local/bin/code"
+    elif command -v distrobox >/dev/null 2>&1; then
+        _report_info "Host VS Code not found. Attempting to export from '$CONTAINER_NAME'..."
+        if distrobox list | grep -q "$CONTAINER_NAME"; then
+            distrobox enter "$CONTAINER_NAME" -- distrobox-export --bin /usr/bin/code --export-path "$HOME/.local/bin"
+            _report_fix "Exported 'code' binary from container to ~/.local/bin/code"
+        else
+            _report_info "Distrobox '$CONTAINER_NAME' not found. Cannot export CLI."
+        fi
+    else
+        _report_info "Could not locate VS Code. Please ensure it is installed."
+    fi
+
+    if ! echo "$PATH" | grep -q "$HOME/.local/bin" || ! grep -q ".local/bin" "$HOME/.bashrc"; then
+        _report_info "Adding ~/.local/bin to PATH in ~/.bashrc..."
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+        _report_fix "PATH updated. You may need to restart your terminal."
+    fi
+}
+
 # --- Main Logic ---
 echo -e "${BLUE}======================================================================${NC}"
 echo -e "${BLUE}   STEAM DECK DEVELOPMENT DIAGNOSTIC & FIXER                          ${NC}"
@@ -305,6 +338,16 @@ else
     status="BAD"
 fi
 report "$status" "VS Code GPU Acceleration" "CRITICAL: Fixes GPU crashes (Code 132/512)" "Set \"disable-hardware-acceleration\": true in argv.json" "$gpu_accel" "fix_vscode_gpu_disable"
+
+# 7c. VS Code CLI in PATH
+if command -v code >/dev/null 2>&1; then
+    status="GOOD"
+    current="Available"
+else
+    status="BAD"
+    current="Not Found"
+fi
+report "$status" "VS Code CLI" "HIGH: 'code' command not found in PATH" "Attempt to find and link 'code' CLI" "$current" "fix_vscode_cli_path"
 
 # 8. Disk Space
 home_usage=$(df -h "$HOME" | tail -1 | awk '{print $5}' | sed 's/%//')
@@ -479,9 +522,11 @@ fi
 # 22. Failed System Services
 if command -v systemctl >/dev/null 2>&1; then
     if failed_output=$(systemctl --failed --no-legend --plain 2>/dev/null); then
-        failed_units=$(echo "$failed_output" | grep -c . || echo "0")
-        failed_units=$(echo "$failed_units" | tr -d '[:space:]')
-        if [ "$failed_units" -gt 0 ]; then
+        # Filter out known non-critical Steam Deck services
+        failed_output=$(echo "$failed_output" | grep -v "jupiter-controller-update.service" | grep -v '^$')
+        
+        if [ -n "$failed_output" ]; then
+            failed_units=$(echo "$failed_output" | wc -l)
             status="WARNING"
             current="$failed_units failed"
         else
