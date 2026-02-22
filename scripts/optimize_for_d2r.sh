@@ -42,7 +42,7 @@ echo "Args: $@"
 D2R_APP_ID="2536520" # Infernal Edition
 FIX_APPLIED=false
 AUTO_FIX=false
-TEST_MODE=true
+TEST_MODE=false
 
 # Argument parsing
 while [[ $# -gt 0 ]]; do
@@ -540,12 +540,16 @@ if [[ "$AUTO_FIX" == "true" ]]; then
                      exec wine "$GAME_PATH"
                 else
                      if [[ "$GAME_PATH" == *.exe || "$GAME_PATH" == *.EXE ]]; then
-                         echo -e "${RED}ERROR: Cannot execute Windows binary directly without Wine/Proton!${NC}"
-                         echo -e "To fix this, please set up the script correctly in Steam:"
-                         echo -e "1. Add the GAME (D2R.exe or Battle.net Launcher.exe) as a Non-Steam Game."
-                         echo -e "2. Force the use of a compatibility tool (Proton) in the game's Properties -> Compatibility."
-                         echo -e "3. In the game's Properties -> Launch Options, add:"
+                         echo -e "${RED}ERROR: Cannot execute a Windows binary (.exe) directly.${NC}"
+                         echo -e "This script needs to be run within a Proton/Wine environment to launch the game."
+                         echo -e ""
+                         echo -e "To use this script correctly, you must set it as a launch option in Steam:"
+                         echo -e "1. Go to your game's Properties in your Steam Library."
+                         echo -e "   (This can be the official D2R Steam game, or a non-Steam game you've added)."
+                         echo -e "2. In 'General' -> 'Launch Options', add the following:"
                          echo -e "   ${YELLOW}\"$SCRIPT_DIR/launch_d2r_wrapper.sh\" %command%${NC}"
+                         echo -e ""
+                         echo -e "The '%command%' part is crucial as it tells Steam to run your game through Proton first, and then pass that command to our script."
                          echo -e ""
                          echo -e "Closing in 15 seconds..."
                          sleep 15
