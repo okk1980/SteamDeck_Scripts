@@ -42,12 +42,25 @@ echo "Args: $@"
 D2R_APP_ID="2536520" # Infernal Edition
 FIX_APPLIED=false
 AUTO_FIX=false
+TEST_MODE=true
 
-# Check for --yes or -y flag
-if [[ "$1" == "--yes" || "$1" == "-y" ]]; then
-    AUTO_FIX=true
-    shift # Remove the flag so we can execute potential commands later
-fi
+# Argument parsing
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --yes|-y)
+            AUTO_FIX=true
+            shift
+            ;;
+        --test)
+            TEST_MODE=true
+            shift
+            ;;
+        *)
+            # This is the game command, so stop parsing
+            break
+            ;;
+    esac
+done
 
 # Auto-detect Game Mode and force AUTO_FIX
 # If running in gamescope (Game Mode), always auto-fix regardless of arguments
@@ -142,6 +155,10 @@ report() {
 # --- Fix Functions ---
 
 fix_stop_dev_tasks() {
+    if [ "$TEST_MODE" = true ]; then
+        echo -e "         ${YELLOW}[TEST MODE]${NC} Skipping stopping dev tasks."
+        return
+    fi
     echo -e "         Stopping all Distrobox containers..."
     # Timeout after 15s to avoid hang
     if ! timeout 15s distrobox stop --all --yes 2>/dev/null; then
@@ -357,11 +374,18 @@ check_background_tasks() {
     local bnet_procs=$(pgrep -f "Battle.net.exe" | wc -l)
     
     if [ "$running_containers" -gt 0 ] || [ "$java_procs" -gt 0 ] || [ "$sim_procs" -gt 0 ] || [ "$code_procs" -gt 0 ]; then
-        report "BAD" "Background Dev Tasks" \
-            "Heavy tasks steal CPU cycles and cause frame stutters in D2R." \
-            "Stop all containers, VS Code, and kill java/simulator processes." \
-            "$running_containers containers, $java_procs java, $sim_procs sim, $code_procs VS Code" \
-            "fix_stop_dev_tasks"
+        if [ "$TEST_MODE" = true ]; then
+            report "INFO" "Background Dev Tasks" \
+                "Running dev tasks detected, but ignored in test mode." \
+                "Stop all containers, VS Code, and kill java/simulator processes." \
+                "$running_containers containers, $java_procs java, $sim_procs sim, $code_procs VS Code"
+        else
+            report "BAD" "Background Dev Tasks" \
+                "Heavy tasks steal CPU cycles and cause frame stutters in D2R." \
+                "Stop all containers, VS Code, and kill java/simulator processes." \
+                "$running_containers containers, $java_procs java, $sim_procs sim, $code_procs VS Code" \
+                "fix_stop_dev_tasks"
+        fi
     else
         report "GOOD" "Background Dev Tasks" "" "" "None found"
     fi
