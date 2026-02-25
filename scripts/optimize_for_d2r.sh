@@ -14,15 +14,13 @@ NC='\033[0m' # No Color
 # Determine script directory reliably (even if symlinked or sourced)
 SCRIPT_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 LOG_FILE="$SCRIPT_DIR/d2r_optimize.log"
-DESKTOP_LOG="$HOME/Desktop/d2r_optimize_debug.txt"
 
 # Force log creation immediately to test write access
 touch "$LOG_FILE" || LOG_FILE="/tmp/d2r_optimize_fallback.log"
 chmod 666 "$LOG_FILE" 2>/dev/null
-echo "Starting D2R Optimization Script at $(date)" > "$DESKTOP_LOG"
 
 # Redirect all stdout and stderr to the log file for debugging (append mode)
-exec > >(tee -a "$LOG_FILE" | tee -a "$DESKTOP_LOG") 2>&1
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 # Save LD_PRELOAD to restore it later for the game, and unset it to prevent 32-bit/64-bit mismatch errors in script commands
 if [[ -n "$LD_PRELOAD" ]]; then

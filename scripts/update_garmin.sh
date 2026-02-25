@@ -141,14 +141,13 @@ if command -v flatpak > /dev/null 2>&1; then
     updates=$(flatpak remote-ls --updates --columns=application,name | awk -F '\t' 'NR>1 {print "    - " $2 " (" $1 ")"}' | sort)
     if [ -n "$updates" ]; then
         if flatpak update -y; then
-            add_summary "Flatpaks: Alle Apps aktuell."
+            add_summary "Flatpaks: Updates installiert."
             add_update_summary "$updates"
         else
             add_summary "⚠️ Flatpaks: Fehler beim Update."
         fi
     else
         add_summary "Flatpaks: Keine Updates verfügbar."
-        # Still run update to catch any new apps that were not in the remote-ls
         flatpak update -y > /dev/null 2>&1
     fi
 fi
@@ -175,7 +174,7 @@ if command -v distrobox > /dev/null 2>&1 && distrobox list 2>/dev/null | grep -q
         sudo apt-get clean
     "; then
         if [ -n "$updates" ]; then
-            add_summary "Distrobox ($CONTAINER_NAME): Update erfolgreich."
+            add_summary "Distrobox ($CONTAINER_NAME): Updates installiert."
             add_update_summary "$updates"
         else
             add_summary "Distrobox ($CONTAINER_NAME): Keine Updates verfügbar."
