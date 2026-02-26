@@ -13,10 +13,9 @@ fi
 # Get absolute path to this script's directory
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 TARGET_SCRIPT="$DIR/optimize_for_d2r.sh"
-LOG="$HOME/Desktop/d2r_wrapper_debug.log"
-
 echo "wrapper: Started at $(date)" > "$LOG"
 echo "wrapper: Target script is '$TARGET_SCRIPT'" >> "$LOG"
+## Logging removed: Only optimize_for_d2r.sh will log
 
 # Make sure target is executable
 chmod +x "$TARGET_SCRIPT"
@@ -25,7 +24,7 @@ chmod +x "$TARGET_SCRIPT"
 launch_terminal() {
     # Check for Game Mode environment
     if [[ -n "$SteamDeck" || "$XDG_CURRENT_DESKTOP" == "gamescope" ]]; then
-        echo "wrapper: Game Mode detected. Skipping terminal launch." >> "$LOG"
+        # Logging removed
         return 1
     fi
 
@@ -38,42 +37,40 @@ launch_terminal() {
 
     # Method 1: konsole (KDE default)
     if command -v konsole &> /dev/null; then
-        echo "wrapper: Launching via konsole" >> "$LOG"
+        # Logging removed
         konsole -e "$TMP_SCRIPT" "$@" &
         return 0
     fi
     
     # Method 2: x-terminal-emulator (Generic)
     if command -v x-terminal-emulator &> /dev/null; then
-        echo "wrapper: Launching via x-terminal-emulator" >> "$LOG"
+        # Logging removed
         x-terminal-emulator -e "$TMP_SCRIPT" "$@" &
         return 0
     fi
 
     # Method 3: gnome-terminal
     if command -v gnome-terminal &> /dev/null; then
-        echo "wrapper: Launching via gnome-terminal" >> "$LOG"
+        # Logging removed
         gnome-terminal -- "$TMP_SCRIPT" "$@" &
         return 0
     fi
     
     # Method 4: xterm
     if command -v xterm &> /dev/null; then
-        echo "wrapper: Launching via xterm" >> "$LOG"
+        # Logging removed
         xterm -e "$TMP_SCRIPT" "$@" &
         return 0
     fi
 
-    echo "wrapper: No terminal emulator found!" >> "$LOG"
+    # Logging removed
     return 1
 }
 
 # Try to launch terminal
 if launch_terminal "$@"; then
-    echo "wrapper: Terminal launched successfully." >> "$LOG"
     exit 0
 fi
 
 # Fallback: Run directly if no terminal (e.g. Game Mode, or if in terminal already)
-echo "wrapper: Running directly (fallback)" >> "$LOG"
-"$TARGET_SCRIPT" --yes "$@" >> "$LOG" 2>&1
+"$TARGET_SCRIPT" --yes "$@"

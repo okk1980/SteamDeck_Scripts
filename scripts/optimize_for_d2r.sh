@@ -519,7 +519,8 @@ if [[ "$AUTO_FIX" == "true" ]]; then
             export LD_PRELOAD="$SAVED_LD_PRELOAD"
         fi
         
-        exec "$@"
+        "$@"
+        exit 0
     else
         # Try to read game path from config file
         CONFIG_FILE="$SCRIPT_DIR/d2r_path.cfg"
