@@ -34,20 +34,23 @@ fi
 if [ "$IS_CONTAINER" = true ]; then
     echo ">> [Container] Ausführung innerhalb eines Containers erkannt."
     echo "   -> Starte Container-Upgrade (apt)..."
-    updates=$(apt-get --just-print upgrade | awk -F '[/ ]' '/^  Inst/ {print "    - " $2 " -> " $4}')
-    if sudo apt-get update -qq && \
-       sudo apt-get install -y -qq libcanberra-gtk-module libcanberra-gtk3-module > /dev/null 2>&1 && \
-       sudo apt-get dist-upgrade -y -qq && \
-       sudo apt-get autoremove -y -qq && \
-       sudo apt-get clean; then
-        if [ -n "$updates" ]; then
-            add_summary "Container-Pakete: Alle Updates erfolgreich installiert."
-            add_update_summary "$updates"
+    if sudo apt-get update -qq; then
+        updates=$(env LC_ALL=C apt-get --just-print dist-upgrade | awk -F '[/ ]' '/^Inst/ {print "    - " $2 " -> " $4}')
+        if sudo apt-get install -y -qq libcanberra-gtk-module libcanberra-gtk3-module > /dev/null 2>&1 && \
+           sudo apt-get dist-upgrade -y -qq && \
+           sudo apt-get autoremove -y -qq && \
+           sudo apt-get clean; then
+            if [ -n "$updates" ]; then
+                add_summary "Container-Pakete: Alle Updates erfolgreich installiert."
+                add_update_summary "$updates"
+            else
+                add_summary "Container-Pakete: Keine Updates verfügbar."
+            fi
         else
-            add_summary "Container-Pakete: Keine Updates verfügbar."
+            add_summary "⚠️ Container-Pakete: Fehler beim Upgrade-Vorgang (apt)."
         fi
     else
-        add_summary "⚠️ Container-Pakete: Fehler beim Update (apt)."
+        add_summary "⚠️ Container-Pakete: Fehler beim Aktualisieren der Paketlisten (apt-get update)."
     fi
 
     echo "=========================================="
@@ -106,16 +109,21 @@ elif command -v pacman > /dev/null 2>&1; then
     fi
 elif command -v apt-get > /dev/null 2>&1; then
     echo ">> [Host] apt erkannt: System-Upgrade läuft..."
-    updates=$(apt-get --just-print upgrade | awk -F '[/ ]' '/^  Inst/ {print "    - " $2 " -> " $4}')
-    if sudo apt-get update -qq && sudo apt-get full-upgrade -y -qq; then
-        if [ -n "$updates" ]; then
-            add_summary "Host-Pakete (apt): System aktuell."
-            add_update_summary "$updates"
+    # Refresh apt cache first so we detect available upgrades correctly
+    if sudo apt-get update -qq; then
+        updates=$(env LC_ALL=C apt-get --just-print dist-upgrade | awk -F '[/ ]' '/^Inst/ {print "    - " $2 " -> " $4}')
+        if sudo apt-get full-upgrade -y -qq; then
+            if [ -n "$updates" ]; then
+                add_summary "Host-Pakete (apt): System aktuell."
+                add_update_summary "$updates"
+            else
+                add_summary "Host-Pakete (apt): Keine Updates verfügbar."
+            fi
         else
-            add_summary "Host-Pakete (apt): Keine Updates verfügbar."
+            add_summary "⚠️ Host-Pakete (apt): Fehler beim Update."
         fi
     else
-        add_summary "⚠️ Host-Pakete (apt): Fehler beim Update."
+        add_summary "⚠️ Host-Pakete (apt): Fehler beim Aktualisieren der Paketlisten."
     fi
 elif command -v dnf > /dev/null 2>&1; then
     echo ">> [Host] dnf erkannt: System-Upgrade läuft..."
@@ -138,53 +146,86 @@ fi
 # Flatpak updates
 if command -v flatpak > /dev/null 2>&1; then
     echo ">> [Host] Aktualisiere Flatpaks..."
-    updates=$(flatpak remote-ls --updates --columns=application,name | awk -F '\t' 'NR>1 {print "    - " $2 " (" $1 ")"}' | sort)
-    if [ -n "$updates" ]; then
-        if flatpak update -y; then
-            add_summary "Flatpaks: Updates installiert."
-            add_update_summary "$updates"
+    FLATPAK_LOG=$(mktemp)
+    
+    echo "   -> Suche nach Flatpak-Updates..."
+    # Force English output for reliable parsing, but redirect all output to log.
+    # The command's exit code will determine success or failure.
+    if env LC_ALL=C flatpak update -y > "$FLATPAK_LOG" 2>&1; then
+        # Command succeeded, show the output to the user
+        cat "$FLATPAK_LOG"
+        
+        # Check if "Nothing to do" is in the output (English or German)
+        if grep -Eq "Nothing to do\.|Nichts zu tun\." "$FLATPAK_LOG"; then
+            add_summary "Flatpaks: Keine Updates verfügbar."
         else
-            add_summary "⚠️ Flatpaks: Fehler beim Update."
+            add_summary "Flatpaks: Updates wurden installiert."
+            
+            # Try to parse updated package names from the log
+            flatpak_updates=$(grep -E '^\s+[0-9]+\.\s+' "$FLATPAK_LOG" | awk '{print "    - " $2}' || true)
+            
+            # If the first attempt at parsing failed, try a different column
+            if [ -z "$flatpak_updates" ]; then
+                flatpak_updates=$(grep -E '^\s+[0-9]+\.\s+' "$FLATPAK_LOG" | awk '{print "    - " $3}' || true)
+            fi
+
+            if [ -n "$flatpak_updates" ]; then
+                add_update_summary "$flatpak_updates"
+            else
+                # If parsing fails, just give a generic message
+                add_update_summary "    (Details siehe oben im Terminal)"
+            fi
         fi
     else
-        add_summary "Flatpaks: Keine Updates verfügbar."
-        flatpak update -y > /dev/null 2>&1
+        # Command failed, show the output for debugging
+        cat "$FLATPAK_LOG"
+        add_summary "⚠️ Flatpaks: Fehler beim Update."
     fi
+    rm -f "$FLATPAK_LOG"
 fi
 
 echo ""
 echo ">> [Container] Prüfe ob Container '$CONTAINER_NAME' existiert..."
 
-if command -v distrobox > /dev/null 2>&1 && distrobox list 2>/dev/null | grep -qw "$CONTAINER_NAME"; then
-    echo ">> [Container] Betrete '$CONTAINER_NAME' und führe Wartung aus..."
+if command -v distrobox > /dev/null 2>&1; then
+    # Capture list output to avoid running it twice and to debug errors
+    DB_LIST=$(distrobox list 2>&1 || true)
+    if echo "$DB_LIST" | grep -qw "$CONTAINER_NAME"; then
+        echo ">> [Container] Betrete '$CONTAINER_NAME' und führe Wartung aus..."
 
-    # First update the apt cache so we can see what updates are available
-    distrobox enter "$CONTAINER_NAME" -- sudo apt-get update -qq
+        # First update the apt cache so we can see what updates are available
+        distrobox enter "$CONTAINER_NAME" -- sudo apt-get update -qq
 
-    # Now calculate the updates based on the fresh cache
-    updates=$(distrobox enter "$CONTAINER_NAME" -- apt-get --just-print upgrade | awk -F '[/ ]' '/^  Inst/ {print "    - " $2 " -> " $4}')
-    
-    # Perform the actual upgrade
-    if distrobox enter "$CONTAINER_NAME" -- bash -lc "
-        set -euo pipefail
-        echo '   -> Starte Container-Upgrade (apt)...'
-        # apt-get update already ran above, but running it again is harmless or we can skip it
-        sudo apt-get dist-upgrade -y -qq
-        sudo apt-get autoremove -y -qq
-        sudo apt-get clean
-    "; then
-        if [ -n "$updates" ]; then
-            add_summary "Distrobox ($CONTAINER_NAME): Updates installiert."
-            add_update_summary "$updates"
+        # Now calculate the updates based on the fresh cache
+        updates=$(distrobox enter "$CONTAINER_NAME" -- env LC_ALL=C apt-get --just-print dist-upgrade | awk -F '[/ ]' '/^Inst/ {print "    - " $2 " -> " $4}')
+        
+        # Perform the actual upgrade
+        if distrobox enter "$CONTAINER_NAME" -- bash -lc "
+            set -euo pipefail
+            echo '   -> Starte Container-Upgrade (apt)...'
+            # apt-get update already ran above, but running it again is harmless or we can skip it
+            sudo apt-get dist-upgrade -y -qq
+            sudo apt-get autoremove -y -qq
+            sudo apt-get clean
+        "; then
+            if [ -n "$updates" ]; then
+                add_summary "Distrobox ($CONTAINER_NAME): Updates installiert."
+                add_update_summary "$updates"
+            else
+                add_summary "Distrobox ($CONTAINER_NAME): Keine Updates verfügbar."
+            fi
         else
-            add_summary "Distrobox ($CONTAINER_NAME): Keine Updates verfügbar."
+            add_summary "⚠️ Distrobox ($CONTAINER_NAME): Fehler beim Update."
         fi
     else
-        add_summary "⚠️ Distrobox ($CONTAINER_NAME): Fehler beim Update."
+        echo ">> [Container] Container '$CONTAINER_NAME' NICHT gefunden."
+        echo ">> Debug: Ausgabe von 'distrobox list':"
+        echo "$DB_LIST"
+        add_summary "Distrobox: Container '$CONTAINER_NAME' nicht gefunden."
     fi
 else
-    echo ">> [Container] Container '$CONTAINER_NAME' nicht gefunden — überspringe Container-Update."
-    add_summary "Distrobox: Container '$CONTAINER_NAME' nicht gefunden."
+    echo ">> [Container] Distrobox ist nicht installiert. Container-Update wird übersprungen."
+    add_summary "Distrobox: Befehl nicht gefunden."
 fi
 
 echo ""
